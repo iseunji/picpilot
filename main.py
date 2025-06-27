@@ -2,6 +2,7 @@ import streamlit as st
 import datetime
 import requests
 import numpy as np
+from loguru import logger
 
 POST_TIMES = {
     "소비재 / 소매 (Consumer goods and retail)": [
@@ -145,18 +146,30 @@ def get_next_best_time(audience: str, now: datetime.datetime = None) -> str:
 API_URL = "https://havepaws-dinov2-embedding.hf.space/run/predict"
 
 def get_image_embedding(image_bytes, api_url):
-    response = requests.post(
-        api_url,
-        files={"image": image_bytes}
-    )
-    response.raise_for_status()
-    # DINOv2 Embedding Space는 {"data": [[...]]} 형태로 반환
-    return np.array(response.json()["data"][0])
+    try:
+        response = requests.post(
+            api_url,
+            files={"image": image_bytes}
+        )
+        response.raise_for_status()
+        # DINOv2 Embedding Space는 {"data": [[...]]} 형태로 반환
+        return np.array(response.json()["data"][0])
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"API 서버 에러 발생: {e}")
+        logger.error(f"응답 상태 코드: {response.status_code}")
+        logger.error(f"응답 내용: {response.text}")
+        raise Exception(f"이미지 분석 서버에 문제가 발생했습니다. (상태 코드: {response.status_code})")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"네트워크 요청 에러: {e}")
+        raise Exception("네트워크 연결에 문제가 발생했습니다.")
+    except Exception as e:
+        logger.error(f"예상치 못한 에러: {e}")
+        raise Exception("이미지 분석 중 오류가 발생했습니다.")
 
 def find_most_similar_image(user_images, candidate_images, api_url):
-    print("이미지 1단계 임베딩 시작")
+    logger.info("이미지 1단계 임베딩 시작")
     user_embeds = [get_image_embedding(img.read(), api_url) for img in user_images]
-    print("이미지 2단계 임베딩 시작")
+    logger.info("이미지 2단계 임베딩 시작")
     candidate_embeds = [get_image_embedding(img.read(), api_url) for img in candidate_images]
     user_mean = np.mean(user_embeds, axis=0)
     sims = [np.dot(user_mean, c) / (np.linalg.norm(user_mean) * np.linalg.norm(c)) for c in candidate_embeds]
@@ -193,15 +206,20 @@ def main():
     if st.button("업로드 이미지 추천"):
         if user_images and candidate_images:
             with st.spinner("이미지 유사도 분석 중..."):
-                print("이미지 유사도 분석 시작")
-                best_idx = find_most_similar_image(user_images, candidate_images, API_URL)
-                print("이미지 유사도 분석 완료")
-                best_image = candidate_images[best_idx]
-                st.image(best_image, caption="가장 유사한 스타일의 추천 이미지")
-                if captions:
-                    st.write("추천 캡션:", captions[0])
-                best_time = get_next_best_time(audience)
-                st.write(best_time)
+                try:
+                    logger.info("이미지 유사도 분석 시작")
+                    best_idx = find_most_similar_image(user_images, candidate_images, API_URL)
+                    logger.info("이미지 유사도 분석 완료")
+                    best_image = candidate_images[best_idx]
+                    st.image(best_image, caption="가장 유사한 스타일의 추천 이미지")
+                    if captions:
+                        st.write("추천 캡션:", captions[0])
+                    best_time = get_next_best_time(audience)
+                    st.write(best_time)
+                except Exception as e:
+                    logger.error(f"이미지 분석 실패: {e}")
+                    st.error(f"이미지 분석 중 오류가 발생했습니다: {str(e)}")
+                    st.info("잠시 후 다시 시도해주세요.")
         else:
             st.warning("기존 사진과 후보 사진을 모두 업로드 해주세요.")
 
