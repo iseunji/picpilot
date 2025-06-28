@@ -1,0 +1,9 @@
+streamlit
+numpy
+pillow
+requests
+loguru
+torch
+torchvision
+# opencv-python  # (cv2가 꼭 필요하면 주석 해제, Streamlit Cloud에서는 종종 오류)
+# git+https://github.com/openai/CLIP.git  # (clip을 쓸 경우만 주석 해제)

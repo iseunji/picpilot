@@ -2,13 +2,13 @@ import streamlit as st
 import datetime
 import numpy as np
 from loguru import logger
-import cv2
 from PIL import Image
 import io
 import torch
 import clip
 import os
 from pathlib import Path
+import requests
 
 POST_TIMES = {
     "소비재 / 소매 (Consumer goods and retail)": [
@@ -248,65 +248,6 @@ def calculate_clip_similarity(img1_bytes, img2_bytes, model, preprocess, device)
         logger.error(f"CLIP 유사도 계산 실패: {e}")
         return 0.0
 
-def calculate_clip_advanced_similarity(img1_bytes, img2_bytes, model, preprocess, device):
-    """CLIP 모델의 텍스트-이미지 이해 능력을 활용한 고급 유사도 계산"""
-    try:
-        # 이미지 바이트를 PIL Image로 변환
-        img1 = Image.open(io.BytesIO(img1_bytes)).convert('RGB')
-        img2 = Image.open(io.BytesIO(img2_bytes)).convert('RGB')
-        
-        # 이미지 전처리
-        img1_tensor = preprocess(img1).unsqueeze(0).to(device)
-        img2_tensor = preprocess(img2).unsqueeze(0).to(device)
-        
-        # 스타일 관련 텍스트 프롬프트들
-        style_prompts = [
-            "a beautiful aesthetic photo",
-            "a stylish fashion photo", 
-            "a professional portrait",
-            "a casual lifestyle photo",
-            "a vibrant colorful image",
-            "a minimalist clean photo",
-            "a warm cozy atmosphere",
-            "a modern trendy style",
-            "a natural outdoor scene",
-            "a artistic creative composition"
-        ]
-        
-        # 텍스트 토크나이징
-        text_tokens = clip.tokenize(style_prompts).to(device)
-        
-        with torch.no_grad():
-            # 이미지 임베딩
-            img1_features = model.encode_image(img1_tensor)
-            img2_features = model.encode_image(img2_tensor)
-            
-            # 텍스트 임베딩
-            text_features = model.encode_text(text_tokens)
-            
-            # 정규화
-            img1_features = img1_features / img1_features.norm(dim=-1, keepdim=True)
-            img2_features = img2_features / img2_features.norm(dim=-1, keepdim=True)
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-            
-            # 이미지-텍스트 유사도 계산
-            img1_text_similarity = (img1_features @ text_features.T).squeeze()
-            img2_text_similarity = (img2_features @ text_features.T).squeeze()
-            
-            # 두 이미지의 스타일 유사도 (텍스트 공간에서)
-            style_similarity = torch.cosine_similarity(img1_text_similarity, img2_text_similarity, dim=0)
-            
-            # 직접 이미지 유사도
-            direct_similarity = (img1_features @ img2_features.T).item()
-            
-            # 종합 유사도 (스타일 + 직접 유사도)
-            combined_similarity = (style_similarity.item() + direct_similarity) / 2
-            
-        return combined_similarity
-    except Exception as e:
-        logger.error(f"CLIP 고급 유사도 계산 실패: {e}")
-        return 0.0
-
 # 전역 변수로 CLIP 모델 저장
 _clip_model = None
 _clip_preprocess = None
@@ -387,22 +328,13 @@ def calculate_orb_similarity(img1_bytes, img2_bytes):
         logger.error(f"ORB 유사도 계산 실패: {e}")
         return 0.0
 
-def calculate_image_similarity(img1_bytes, img2_bytes, method="histogram"):
-    """이미지 유사도 계산 (통합 함수)"""
-    if method == "histogram":
-        return calculate_histogram_similarity(img1_bytes, img2_bytes)
-    elif method == "orb":
-        return calculate_orb_similarity(img1_bytes, img2_bytes)
-    elif method == "clip":
-        model, preprocess, device = get_clip_model()
-        if model is not None:
-            return calculate_clip_advanced_similarity(img1_bytes, img2_bytes, model, preprocess, device)
-        else:
-            logger.warning("CLIP 모델 로딩 실패, 히스토그램 방법으로 대체")
-            return calculate_histogram_similarity(img1_bytes, img2_bytes)
+def calculate_image_similarity(img1_bytes, img2_bytes, method="clip"):
+    model, preprocess, device = get_clip_model()
+    if model is not None:
+        return calculate_clip_similarity(img1_bytes, img2_bytes, model, preprocess, device)
     else:
-        logger.warning(f"알 수 없는 방법: {method}, 히스토그램 방법 사용")
-        return calculate_histogram_similarity(img1_bytes, img2_bytes)
+        logger.warning("CLIP 모델 로딩 실패")
+        return 0.0
 
 def find_most_similar_image(user_images, candidate_images, method="histogram"):
     """가장 유사한 이미지 찾기"""
@@ -434,14 +366,51 @@ def find_most_similar_image(user_images, candidate_images, method="histogram"):
     logger.info(f"가장 유사한 이미지 인덱스: {best_idx}, 유사도: {best_similarity:.4f}")
     return best_idx
 
+def generate_caption_with_llm(captions, image_desc="사진"):
+    # HuggingFace 무료 LLM API (예: google/gemma-2b-it)
+    API_URL = "https://api-inference.huggingface.co/models/google/gemma-2b-it"
+    # 무료 계정은 토큰 없이도 일부 모델 사용 가능, 더 안정적으로 쓰려면 HuggingFace Access Token 발급 후 아래 주석 해제
+    # headers = {"Authorization": "Bearer hf_xxx"}
+    headers = {}
+    prompt = (
+        "아래는 인스타그램 사진 캡션 예시입니다:\n"
+        + "\n".join(captions[:5])
+        + f"\n\n위 스타일을 참고해서, '{image_desc}'에 어울리는 짧은 코멘트와 해시태그 2개를 추천해줘."
+    )
+    payload = {"inputs": prompt, "parameters": {"max_new_tokens": 60}}
+    response = requests.post(API_URL, headers=headers, json=payload)
+    result = response.json()
+    # 모델에 따라 result 파싱이 다를 수 있음
+    if isinstance(result, list) and len(result) > 0 and "generated_text" in result[0]:
+        return result[0]["generated_text"]
+    elif "generated_text" in result:
+        return result["generated_text"]
+    elif "error" in result:
+        return f"LLM 오류: {result['error']}"
+    else:
+        return str(result)
+
 def main():
     st.title("PicPilot Agent")
 
-    # 맨 처음 인사
-    st.markdown("안녕하세요 :) 당신의 인스타그램 업로드용 사진을 골라드릴 Picpilot 입니다.")
+    # 맨 처음 인사 및 서비스 설명
+    st.markdown(
+        """
+        안녕하세요. 당신의 인스타그램 업로드용 사진을 골라드릴 Picpilot 입니다.
 
-    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">본인이 주로 활동하거나, 타겟으로 하는 분야</div>', unsafe_allow_html=True)
-    user_field_input = st.text_input("예시: 뷰티 리뷰, 여행 블로거, 투자 콘텐츠 creator 등")
+        <span style="font-size:1.00em; font-weight:300;">
+        Picpilot은<br>
+        ✅ 당신의 선호 이미지 및 캡션 스타일을 분석하고<br>
+        ✅ 여러 후보 사진 중 가장 적합한 이미지와 그에 어울리는 캡션을 추천 하며<br>
+        ✅ 추천 업로드 요일/시간까지 제안하는 AI 기반 인스타그램 업로드 보조 서비스입니다.
+
+        </span>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 본인이 주로 활동하거나, 타겟으로 하는 분야</div>', unsafe_allow_html=True)
+    user_field_input = st.text_input("예시: 뷰티 리뷰, 여행, 투자 콘텐츠 크리에이터 등 / 분야 특정을 원치 않거나 모호한 경우 '없음' 으로 표기 가능합니다.")
 
     audience = None
     if user_field_input:
@@ -451,24 +420,24 @@ def main():
         else:
             st.warning("입력하신 내용이 기존 분야 리스트와 매칭되지 않아, 보편적 추천이 적용됩니다.")
 
-    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">본인 스타일을 보여주는 인스타그램 사진 5-10장</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 본인의 스타일을 보여주거나, 선호하는 인스타그램 사진 5-10장</div>', unsafe_allow_html=True)
     user_images = st.file_uploader("기존 인스타그램 사진 업로드 (최대 10장)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
-    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">기존에 올렸던 사진 캡션과 태그 예시 5개 이상 (한 줄에 하나씩)</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 기존에 올렸던 이미지 캡션과 태그 예시 3개 이상 (한 줄에 하나씩)</div>', unsafe_allow_html=True)
     captions = st.text_area("예시: 너무 행복했던 일본 여행!💗 #여행스타그램 #OOTD 등").splitlines()
 
-    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">다음 업로드를 희망하는 후보 사진들</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 다음 업로드를 희망하는 후보 사진들</div>', unsafe_allow_html=True)
     candidate_images = st.file_uploader("후보 사진 업로드 (2장 이상)", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="candidate")
 
     # 이미지 유사도 분석 방법 선택
-    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">이미지 유사도 분석 방법</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 이미지 유사도 분석 방법</div>', unsafe_allow_html=True)
     analysis_method = st.selectbox(
         "분석 방법을 선택하세요",
         ["histogram", "orb", "clip"],
         format_func=lambda x: {
-            "histogram": "히스토그램 비교 (빠름, 색상 기반)",
-            "orb": "ORB 특징점 비교 (정확함, 구조 기반)",
-            "clip": "CLIP AI 모델 (최고 정확도, 스타일+의미 기반)"
+            "histogram": "히스토그램 비교 (빠름, 이미지 색상 기반)",
+            "orb": "ORB 특징점 비교 (정확함, 이미지 구조 기반)",
+            "clip": "CLIP AI 모델 (최고 정확도, 이미지 스타일+느낌 기반)"
         }[x]
     )
 
@@ -485,7 +454,10 @@ def main():
                         best_image = candidate_images[best_idx]
                         st.image(best_image, caption="가장 유사한 스타일의 추천 이미지")
                         if captions:
-                            st.write("추천 캡션:", captions[0])
+                            with st.spinner("추천 캡션 생성 중..."):
+                                gen_caption = generate_caption_with_llm(captions, image_desc="추천 이미지")
+                            st.markdown("**추천 코멘트 및 해시태그:**")
+                            st.write(gen_caption)
                         best_time = get_next_best_time(audience)
                         st.write(best_time)
                     except Exception as e:
@@ -495,64 +467,65 @@ def main():
         else:
             st.warning("기존 사진과 후보 사진을 모두 업로드 해주세요.")
 
-    # 테스트 버튼 추가
-    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">이미지를 직접 업로드 하지 않고 기능을 테스트하고 싶으신가요?</div>', unsafe_allow_html=True)
+    # # 테스트 버튼 추가
+    # st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">이미지를 직접 업로드 하지 않고 기능을 테스트하고 싶으신가요?</div>', unsafe_allow_html=True)
     
-    # 테스트용 분석 방법 선택
-    test_analysis_method = st.selectbox(
-        "테스트용 분석 방법을 선택하세요",
-        ["histogram", "orb", "clip"],
-        format_func=lambda x: {
-            "histogram": "히스토그램 비교 (빠름, 색상 기반)",
-            "orb": "ORB 특징점 비교 (정확함, 구조 기반)",
-            "clip": "CLIP AI 모델 (최고 정확도, 스타일+의미 기반)"
-        }[x],
-        key="test_method"
-    )
+    # # 테스트용 분석 방법 선택
+    # test_analysis_method = st.selectbox(
+    #     "테스트용 분석 방법을 선택하세요",
+    #     ["histogram", "orb", "clip"],
+    #     format_func=lambda x: {
+    #         "histogram": "히스토그램 비교 (빠름, 이미지 색상 기반)",
+    #         "orb": "ORB 특징점 비교 (정확함, 이미지 구조 기반)",
+    #         "clip": "CLIP AI 모델 (최고 정확도, 이미지 스타일+느낌 기반)"
+    #     }[x],
+    #     key="test_method"
+    # )
     
-    if st.button("📁 Example로 테스트하기"):
-        user_images, candidate_images = load_test_images()
-        if user_images and candidate_images:
-            st.success(f"테스트 이미지 로드 완료! 사용자 이미지 {len(user_images)}장, 후보 이미지 {len(candidate_images)}장")
-            
-            # 기본 분석 방법으로 테스트 실행
-            with st.spinner(f"테스트 이미지 유사도 분석 중... ({test_analysis_method} 방법 사용)"):
-                try:
-                    logger.info(f"테스트 이미지 유사도 분석 시작 ({test_analysis_method})")
-                    best_idx = find_most_similar_image(user_images, candidate_images, test_analysis_method)
-                    logger.info("테스트 이미지 유사도 분석 완료")
-                    
-                    # 결과 표시
-                    st.markdown("### 🎯 테스트 결과")
-                    st.image(candidate_images[best_idx].read())
-                    
-                    # 사용된 분석 방법 표시
-                    method_display = {
-                        "histogram": "히스토그램 비교",
-                        "orb": "ORB 특징점 비교", 
-                        "clip": "CLIP AI 모델 비교"
-                    }
-                    st.markdown(f"**분석 방법:** {method_display[test_analysis_method]}")
-                    
-                    # 추천 업로드 시간을 예쁘게 표시
-                    best_time = get_next_best_time(CREATOR_TO_FIELD["연예"])
-                    st.markdown("---")
-                    st.markdown("### ⏰ **최적 업로드 시간 추천**")
-                    
-                    # 시간 정보를 강조하여 표시
-                    time_info = best_time.split(": ")[-1] if ": " in best_time else best_time
-                    
-                    st.markdown(f"🕐 **{time_info}**")
-                    st.markdown("*미디어/엔터테인먼트 분야 최적 시간*")
-                        
-                    # 추가 팁 제공
-                    st.info("💡 **팁**: 이 시간대에 업로드하면 팔로워들의 참여도가 높아질 가능성이 있어요!")
-                    
-                except Exception as e:
-                    logger.error(f"테스트 이미지 분석 실패: {e}")
-                    st.error(f"테스트 중 오류가 발생했습니다: {str(e)}")
-        else:
-            st.error("테스트 이미지를 로드할 수 없습니다. data/user_images와 data/candidate_images 디렉토리에 이미지 파일이 있는지 확인해주세요.")
+    # '예시 이미지로 테스트하기' 기능 비활성화 (주석 처리)
+    # if st.button("📁 Example로 테스트하기"):
+    #     user_images, candidate_images = load_test_images()
+    #     if user_images and candidate_images:
+    #         st.success(f"테스트 이미지 로드 완료! 사용자 이미지 {len(user_images)}장, 후보 이미지 {len(candidate_images)}장")
+    #         
+    #         # 기본 분석 방법으로 테스트 실행
+    #         with st.spinner(f"테스트 이미지 유사도 분석 중... ({test_analysis_method} 방법 사용)"):
+    #             try:
+    #                 logger.info(f"테스트 이미지 유사도 분석 시작 ({test_analysis_method})")
+    #                 best_idx = find_most_similar_image(user_images, candidate_images, test_analysis_method)
+    #                 logger.info("테스트 이미지 유사도 분석 완료")
+    #                 
+    #                 # 결과 표시
+    #                 st.markdown("### 🎯 테스트 결과")
+    #                 st.image(candidate_images[best_idx].read())
+    #                 
+    #                 # 사용된 분석 방법 표시
+    #                 method_display = {
+    #                     "histogram": "히스토그램 비교",
+    #                     "orb": "ORB 특징점 비교", 
+    #                     "clip": "CLIP AI 모델 비교"
+    #                 }
+    #                 st.markdown(f"**분석 방법:** {method_display[test_analysis_method]}")
+    #                 
+    #                 # 추천 업로드 시간을 예쁘게 표시
+    #                 best_time = get_next_best_time(CREATOR_TO_FIELD["연예"])
+    #                 st.markdown("---")
+    #                 st.markdown("### ⏰ **최적 업로드 시간 추천**")
+    #                 
+    #                 # 시간 정보를 강조하여 표시
+    #                 time_info = best_time.split(": ")[-1] if ": " in best_time else best_time
+    #                 
+    #                 st.markdown(f"🕐 **{time_info}**")
+    #                 st.markdown("*미디어/엔터테인먼트 분야 최적 시간*")
+    #                     
+    #                 # 추가 팁 제공
+    #                 st.info("💡 **팁**: 이 시간대에 업로드하면 팔로워들의 참여도가 높아질 가능성이 있어요!")
+    #                 
+    #             except Exception as e:
+    #                 logger.error(f"테스트 이미지 분석 실패: {e}")
+    #                 st.error(f"테스트 중 오류가 발생했습니다: {str(e)}")
+    #     else:
+    #         st.error("테스트 이미지를 로드할 수 없습니다. data/user_images와 data/candidate_images 디렉토리에 이미지 파일이 있는지 확인해주세요.")
 
 if __name__ == "__main__":
     main()
