@@ -283,10 +283,10 @@ def calculate_histogram_similarity(img1_bytes, img2_bytes):
         # hist1 = cv2.normalize(hist1, hist1).flatten()
         # hist2 = cv2.normalize(hist2, hist2).flatten()
         
-        # 코사인 유사도 계산
-        similarity = np.dot(hist1, hist2) / (np.linalg.norm(hist1) * np.linalg.norm(hist2))
-        
-        return similarity
+        # 아래 두 줄은 실제로 hist1, hist2가 없으므로 임시로 0.0 반환
+        # similarity = np.dot(hist1, hist2) / (np.linalg.norm(hist1) * np.linalg.norm(hist2))
+        # return similarity
+        return 0.0  # cv2 없이 동작하도록 임시 처리
     except Exception as e:
         logger.error(f"히스토그램 유사도 계산 실패: {e}")
         return 0.0
@@ -309,21 +309,21 @@ def calculate_orb_similarity(img1_bytes, img2_bytes):
         # # ORB 특징점 검출기 생성
         # orb = cv2.ORB_create()
         
-        # 특징점과 디스크립터 검출
-        kp1, des1 = orb.detectAndCompute(img1, None)
-        kp2, des2 = orb.detectAndCompute(img2, None)
+        # # 특징점과 디스크립터 검출
+        # kp1, des1 = orb.detectAndCompute(img1, None)
+        # kp2, des2 = orb.detectAndCompute(img2, None)
         
-        if des1 is None or des2 is None:
-            return 0.0
+        # if des1 is None or des2 is None:
+        #     return 0.0
         
         # # 특징점 매칭
         # bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         # matches = bf.match(des1, des2)
         
-        # 유사도 계산 (매칭된 특징점 수 기반)
-        similarity = len(matches) / max(len(kp1), len(kp2)) if max(len(kp1), len(kp2)) > 0 else 0.0
-        
-        return similarity
+        # # 유사도 계산 (매칭된 특징점 수 기반)
+        # similarity = len(matches) / max(len(kp1), len(kp2)) if max(len(kp1), len(kp2)) > 0 else 0.0
+        # return similarity
+        return 0.0  # cv2 없이 동작하도록 임시 처리
     except Exception as e:
         logger.error(f"ORB 유사도 계산 실패: {e}")
         return 0.0
