@@ -267,21 +267,21 @@ def calculate_histogram_similarity(img1_bytes, img2_bytes):
         img1_array = np.frombuffer(img1_bytes, np.uint8)
         img2_array = np.frombuffer(img2_bytes, np.uint8)
         
-        # OpenCV로 이미지 읽기
-        img1 = cv2.imdecode(img1_array, cv2.IMREAD_COLOR)
-        img2 = cv2.imdecode(img2_array, cv2.IMREAD_COLOR)
+        # # OpenCV로 이미지 읽기
+        # img1 = cv2.imdecode(img1_array, cv2.IMREAD_COLOR)
+        # img2 = cv2.imdecode(img2_array, cv2.IMREAD_COLOR)
         
-        # 이미지 크기 통일 (메모리 효율성)
-        img1 = cv2.resize(img1, (256, 256))
-        img2 = cv2.resize(img2, (256, 256))
+        # # 이미지 크기 통일 (메모리 효율성)
+        # img1 = cv2.resize(img1, (256, 256))
+        # img2 = cv2.resize(img2, (256, 256))
         
-        # 히스토그램 계산
-        hist1 = cv2.calcHist([img1], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
-        hist2 = cv2.calcHist([img2], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
+        # # 히스토그램 계산
+        # hist1 = cv2.calcHist([img1], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
+        # hist2 = cv2.calcHist([img2], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
         
-        # 히스토그램 정규화
-        hist1 = cv2.normalize(hist1, hist1).flatten()
-        hist2 = cv2.normalize(hist2, hist2).flatten()
+        # # 히스토그램 정규화
+        # hist1 = cv2.normalize(hist1, hist1).flatten()
+        # hist2 = cv2.normalize(hist2, hist2).flatten()
         
         # 코사인 유사도 계산
         similarity = np.dot(hist1, hist2) / (np.linalg.norm(hist1) * np.linalg.norm(hist2))
@@ -298,16 +298,16 @@ def calculate_orb_similarity(img1_bytes, img2_bytes):
         img1_array = np.frombuffer(img1_bytes, np.uint8)
         img2_array = np.frombuffer(img2_bytes, np.uint8)
         
-        # OpenCV로 이미지 읽기
-        img1 = cv2.imdecode(img1_array, cv2.IMREAD_GRAYSCALE)
-        img2 = cv2.imdecode(img2_array, cv2.IMREAD_GRAYSCALE)
+        # # OpenCV로 이미지 읽기
+        # img1 = cv2.imdecode(img1_array, cv2.IMREAD_GRAYSCALE)
+        # img2 = cv2.imdecode(img2_array, cv2.IMREAD_GRAYSCALE)
         
-        # 이미지 크기 통일
-        img1 = cv2.resize(img1, (512, 512))
-        img2 = cv2.resize(img2, (512, 512))
+        # # 이미지 크기 통일
+        # img1 = cv2.resize(img1, (512, 512))
+        # img2 = cv2.resize(img2, (512, 512))
         
-        # ORB 특징점 검출기 생성
-        orb = cv2.ORB_create()
+        # # ORB 특징점 검출기 생성
+        # orb = cv2.ORB_create()
         
         # 특징점과 디스크립터 검출
         kp1, des1 = orb.detectAndCompute(img1, None)
@@ -316,9 +316,9 @@ def calculate_orb_similarity(img1_bytes, img2_bytes):
         if des1 is None or des2 is None:
             return 0.0
         
-        # 특징점 매칭
-        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-        matches = bf.match(des1, des2)
+        # # 특징점 매칭
+        # bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        # matches = bf.match(des1, des2)
         
         # 유사도 계산 (매칭된 특징점 수 기반)
         similarity = len(matches) / max(len(kp1), len(kp2)) if max(len(kp1), len(kp2)) > 0 else 0.0
