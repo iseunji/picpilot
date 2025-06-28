@@ -5,7 +5,7 @@ from loguru import logger
 from PIL import Image
 import io
 import torch
-import clip
+import open_clip
 import os
 from pathlib import Path
 import requests
@@ -70,7 +70,6 @@ GENERIC_POST_TIMES = [
     ("일요일", "12:00", "15:00"),
 ]
 
-# 크리에이터 키워드와 분야 매핑
 CREATOR_TO_FIELD = {
     "뷰티": "소비재 / 소매 (Consumer goods and retail)",
     "패션": "소비재 / 소매 (Consumer goods and retail)",
@@ -209,168 +208,77 @@ def get_next_best_time(audience: str, now: datetime.datetime = None) -> str:
     return f"{info}의 가장 가까운 추천 업로드 시간: {candidates[0][1]}"
 
 def load_clip_model():
-    """CLIP 모델 로드"""
+    """open_clip 기반 CLIP 모델 로드"""
     try:
-        logger.info("CLIP 모델 로딩 중...")
+        logger.info("open_clip 모델 로딩 중...")
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        model, preprocess = clip.load("ViT-B/32", device=device)
-        logger.info(f"CLIP 모델 로딩 완료 (디바이스: {device})")
+        model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')
+        model = model.to(device)
+        logger.info(f"open_clip 모델 로딩 완료 (디바이스: {device})")
         return model, preprocess, device
     except Exception as e:
-        logger.error(f"CLIP 모델 로딩 실패: {e}")
+        logger.error(f"open_clip 모델 로딩 실패: {e}")
         return None, None, None
 
 def calculate_clip_similarity(img1_bytes, img2_bytes, model, preprocess, device):
-    """CLIP 모델을 사용한 이미지 유사도 계산"""
+    """open_clip을 사용한 이미지 유사도 계산"""
     try:
-        # 이미지 바이트를 PIL Image로 변환
         img1 = Image.open(io.BytesIO(img1_bytes)).convert('RGB')
         img2 = Image.open(io.BytesIO(img2_bytes)).convert('RGB')
-        
-        # 이미지 전처리
         img1_tensor = preprocess(img1).unsqueeze(0).to(device)
         img2_tensor = preprocess(img2).unsqueeze(0).to(device)
-        
-        # 이미지 임베딩 추출
         with torch.no_grad():
             img1_features = model.encode_image(img1_tensor)
             img2_features = model.encode_image(img2_tensor)
-            
-            # 정규화
             img1_features = img1_features / img1_features.norm(dim=-1, keepdim=True)
             img2_features = img2_features / img2_features.norm(dim=-1, keepdim=True)
-            
-            # 코사인 유사도 계산
             similarity = (img1_features @ img2_features.T).item()
-        
         return similarity
     except Exception as e:
-        logger.error(f"CLIP 유사도 계산 실패: {e}")
+        logger.error(f"open_clip 유사도 계산 실패: {e}")
         return 0.0
 
-# 전역 변수로 CLIP 모델 저장
 _clip_model = None
 _clip_preprocess = None
 _clip_device = None
 
 def get_clip_model():
-    """CLIP 모델을 싱글톤으로 관리"""
     global _clip_model, _clip_preprocess, _clip_device
     if _clip_model is None:
         _clip_model, _clip_preprocess, _clip_device = load_clip_model()
     return _clip_model, _clip_preprocess, _clip_device
-
-def calculate_histogram_similarity(img1_bytes, img2_bytes):
-    """히스토그램 기반 이미지 유사도 계산"""
-    try:
-        # 바이트를 numpy 배열로 변환
-        img1_array = np.frombuffer(img1_bytes, np.uint8)
-        img2_array = np.frombuffer(img2_bytes, np.uint8)
-        
-        # # OpenCV로 이미지 읽기
-        # img1 = cv2.imdecode(img1_array, cv2.IMREAD_COLOR)
-        # img2 = cv2.imdecode(img2_array, cv2.IMREAD_COLOR)
-        
-        # # 이미지 크기 통일 (메모리 효율성)
-        # img1 = cv2.resize(img1, (256, 256))
-        # img2 = cv2.resize(img2, (256, 256))
-        
-        # # 히스토그램 계산
-        # hist1 = cv2.calcHist([img1], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
-        # hist2 = cv2.calcHist([img2], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
-        
-        # # 히스토그램 정규화
-        # hist1 = cv2.normalize(hist1, hist1).flatten()
-        # hist2 = cv2.normalize(hist2, hist2).flatten()
-        
-        # 아래 두 줄은 실제로 hist1, hist2가 없으므로 임시로 0.0 반환
-        # similarity = np.dot(hist1, hist2) / (np.linalg.norm(hist1) * np.linalg.norm(hist2))
-        # return similarity
-        return 0.0  # cv2 없이 동작하도록 임시 처리
-    except Exception as e:
-        logger.error(f"히스토그램 유사도 계산 실패: {e}")
-        return 0.0
-
-def calculate_orb_similarity(img1_bytes, img2_bytes):
-    """ORB 특징점 기반 이미지 유사도 계산"""
-    try:
-        # 바이트를 numpy 배열로 변환
-        img1_array = np.frombuffer(img1_bytes, np.uint8)
-        img2_array = np.frombuffer(img2_bytes, np.uint8)
-        
-        # # OpenCV로 이미지 읽기
-        # img1 = cv2.imdecode(img1_array, cv2.IMREAD_GRAYSCALE)
-        # img2 = cv2.imdecode(img2_array, cv2.IMREAD_GRAYSCALE)
-        
-        # # 이미지 크기 통일
-        # img1 = cv2.resize(img1, (512, 512))
-        # img2 = cv2.resize(img2, (512, 512))
-        
-        # # ORB 특징점 검출기 생성
-        # orb = cv2.ORB_create()
-        
-        # # 특징점과 디스크립터 검출
-        # kp1, des1 = orb.detectAndCompute(img1, None)
-        # kp2, des2 = orb.detectAndCompute(img2, None)
-        
-        # if des1 is None or des2 is None:
-        #     return 0.0
-        
-        # # 특징점 매칭
-        # bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-        # matches = bf.match(des1, des2)
-        
-        # # 유사도 계산 (매칭된 특징점 수 기반)
-        # similarity = len(matches) / max(len(kp1), len(kp2)) if max(len(kp1), len(kp2)) > 0 else 0.0
-        # return similarity
-        return 0.0  # cv2 없이 동작하도록 임시 처리
-    except Exception as e:
-        logger.error(f"ORB 유사도 계산 실패: {e}")
-        return 0.0
 
 def calculate_image_similarity(img1_bytes, img2_bytes, method="clip"):
     model, preprocess, device = get_clip_model()
     if model is not None:
         return calculate_clip_similarity(img1_bytes, img2_bytes, model, preprocess, device)
     else:
-        logger.warning("CLIP 모델 로딩 실패")
+        logger.warning("open_clip 모델 로딩 실패")
         return 0.0
 
-def find_most_similar_image(user_images, candidate_images, method="histogram"):
-    """가장 유사한 이미지 찾기"""
+def find_most_similar_image(user_images, candidate_images, method="clip"):
     logger.info(f"{method} 방법으로 이미지 유사도 분석 시작")
-    
     best_idx = 0
     best_similarity = -1
-    
     for i, candidate_img in enumerate(candidate_images):
         candidate_bytes = candidate_img.read()
-        candidate_img.seek(0)  # 파일 포인터 리셋
-        
-        # 사용자 이미지들과의 평균 유사도 계산
+        candidate_img.seek(0)
         similarities = []
         for user_img in user_images:
             user_bytes = user_img.read()
-            user_img.seek(0)  # 파일 포인터 리셋
-            
+            user_img.seek(0)
             similarity = calculate_image_similarity(user_bytes, candidate_bytes, method)
             similarities.append(similarity)
-        
         avg_similarity = np.mean(similarities)
         logger.info(f"후보 이미지 {i+1} 평균 유사도: {avg_similarity:.4f}")
-        
         if avg_similarity > best_similarity:
             best_similarity = avg_similarity
             best_idx = i
-    
     logger.info(f"가장 유사한 이미지 인덱스: {best_idx}, 유사도: {best_similarity:.4f}")
     return best_idx
 
 def generate_caption_with_llm(captions, image_desc="사진"):
-    # HuggingFace 무료 LLM API (예: google/gemma-2b-it)
     API_URL = "https://api-inference.huggingface.co/models/google/gemma-2b-it"
-    # 무료 계정은 토큰 없이도 일부 모델 사용 가능, 더 안정적으로 쓰려면 HuggingFace Access Token 발급 후 아래 주석 해제
-    # headers = {"Authorization": "Bearer hf_xxx"}
     headers = {}
     prompt = (
         "아래는 인스타그램 사진 캡션 예시입니다:\n"
@@ -380,7 +288,6 @@ def generate_caption_with_llm(captions, image_desc="사진"):
     payload = {"inputs": prompt, "parameters": {"max_new_tokens": 60}}
     response = requests.post(API_URL, headers=headers, json=payload)
     result = response.json()
-    # 모델에 따라 result 파싱이 다를 수 있음
     if isinstance(result, list) and len(result) > 0 and "generated_text" in result[0]:
         return result[0]["generated_text"]
     elif "generated_text" in result:
@@ -392,8 +299,6 @@ def generate_caption_with_llm(captions, image_desc="사진"):
 
 def main():
     st.title("PicPilot Agent")
-
-    # 맨 처음 인사 및 서비스 설명
     st.markdown(
         """
         안녕하세요. 당신의 인스타그램 업로드용 사진을 골라드릴 Picpilot 입니다.
@@ -403,7 +308,6 @@ def main():
         ✅ 당신의 선호 이미지 및 캡션 스타일을 분석하고<br>
         ✅ 여러 후보 사진 중 가장 적합한 이미지와 그에 어울리는 캡션을 추천 하며<br>
         ✅ 추천 업로드 요일/시간까지 제안하는 AI 기반 인스타그램 업로드 보조 서비스입니다.
-
         </span>
         """,
         unsafe_allow_html=True
@@ -449,7 +353,7 @@ def main():
                 with st.spinner("이미지 유사도 분석 중..."):
                     try:
                         logger.info("이미지 유사도 분석 시작")
-                        best_idx = find_most_similar_image(user_images, candidate_images, analysis_method)
+                        best_idx = find_most_similar_image(user_images, candidate_images, method="clip")
                         logger.info("이미지 유사도 분석 완료")
                         best_image = candidate_images[best_idx]
                         st.image(best_image, caption="가장 유사한 스타일의 추천 이미지")
@@ -466,66 +370,6 @@ def main():
                         st.info("잠시 후 다시 시도해주세요.")
         else:
             st.warning("기존 사진과 후보 사진을 모두 업로드 해주세요.")
-
-    # # 테스트 버튼 추가
-    # st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">이미지를 직접 업로드 하지 않고 기능을 테스트하고 싶으신가요?</div>', unsafe_allow_html=True)
-    
-    # # 테스트용 분석 방법 선택
-    # test_analysis_method = st.selectbox(
-    #     "테스트용 분석 방법을 선택하세요",
-    #     ["histogram", "orb", "clip"],
-    #     format_func=lambda x: {
-    #         "histogram": "히스토그램 비교 (빠름, 이미지 색상 기반)",
-    #         "orb": "ORB 특징점 비교 (정확함, 이미지 구조 기반)",
-    #         "clip": "CLIP AI 모델 (최고 정확도, 이미지 스타일+느낌 기반)"
-    #     }[x],
-    #     key="test_method"
-    # )
-    
-    # '예시 이미지로 테스트하기' 기능 비활성화 (주석 처리)
-    # if st.button("📁 Example로 테스트하기"):
-    #     user_images, candidate_images = load_test_images()
-    #     if user_images and candidate_images:
-    #         st.success(f"테스트 이미지 로드 완료! 사용자 이미지 {len(user_images)}장, 후보 이미지 {len(candidate_images)}장")
-    #         
-    #         # 기본 분석 방법으로 테스트 실행
-    #         with st.spinner(f"테스트 이미지 유사도 분석 중... ({test_analysis_method} 방법 사용)"):
-    #             try:
-    #                 logger.info(f"테스트 이미지 유사도 분석 시작 ({test_analysis_method})")
-    #                 best_idx = find_most_similar_image(user_images, candidate_images, test_analysis_method)
-    #                 logger.info("테스트 이미지 유사도 분석 완료")
-    #                 
-    #                 # 결과 표시
-    #                 st.markdown("### 🎯 테스트 결과")
-    #                 st.image(candidate_images[best_idx].read())
-    #                 
-    #                 # 사용된 분석 방법 표시
-    #                 method_display = {
-    #                     "histogram": "히스토그램 비교",
-    #                     "orb": "ORB 특징점 비교", 
-    #                     "clip": "CLIP AI 모델 비교"
-    #                 }
-    #                 st.markdown(f"**분석 방법:** {method_display[test_analysis_method]}")
-    #                 
-    #                 # 추천 업로드 시간을 예쁘게 표시
-    #                 best_time = get_next_best_time(CREATOR_TO_FIELD["연예"])
-    #                 st.markdown("---")
-    #                 st.markdown("### ⏰ **최적 업로드 시간 추천**")
-    #                 
-    #                 # 시간 정보를 강조하여 표시
-    #                 time_info = best_time.split(": ")[-1] if ": " in best_time else best_time
-    #                 
-    #                 st.markdown(f"🕐 **{time_info}**")
-    #                 st.markdown("*미디어/엔터테인먼트 분야 최적 시간*")
-    #                     
-    #                 # 추가 팁 제공
-    #                 st.info("💡 **팁**: 이 시간대에 업로드하면 팔로워들의 참여도가 높아질 가능성이 있어요!")
-    #                 
-    #             except Exception as e:
-    #                 logger.error(f"테스트 이미지 분석 실패: {e}")
-    #                 st.error(f"테스트 중 오류가 발생했습니다: {str(e)}")
-    #     else:
-    #         st.error("테스트 이미지를 로드할 수 없습니다. data/user_images와 data/candidate_images 디렉토리에 이미지 파일이 있는지 확인해주세요.")
 
 if __name__ == "__main__":
     main()
