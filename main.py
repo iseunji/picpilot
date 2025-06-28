@@ -5,6 +5,10 @@ from loguru import logger
 import cv2
 from PIL import Image
 import io
+import torch
+import clip
+import os
+from pathlib import Path
 
 POST_TIMES = {
     "소비재 / 소매 (Consumer goods and retail)": [
@@ -111,6 +115,63 @@ CREATOR_TO_FIELD = {
     "공공 데이터": "정부 (Government)",
 }
 
+def load_test_images():
+    """테스트용 이미지들을 로드하는 함수"""
+    try:
+        # 데이터 디렉토리 경로
+        data_dir = Path("data")
+        user_images_dir = data_dir / "user_images"
+        candidate_images_dir = data_dir / "candidate_images"
+        
+        # 지원하는 이미지 확장자
+        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff'}
+        
+        # 사용자 이미지들 로드
+        user_images = []
+        if user_images_dir.exists():
+            for file_path in user_images_dir.iterdir():
+                if file_path.suffix.lower() in image_extensions:
+                    try:
+                        with open(file_path, 'rb') as f:
+                            image_bytes = f.read()
+                            # StreamlitUploadedFile과 유사한 객체 생성
+                            class MockUploadedFile:
+                                def __init__(self, name, data):
+                                    self.name = name
+                                    self._data = data
+                                    self._position = 0
+                                
+                                def read(self):
+                                    return self._data
+                                
+                                def seek(self, position):
+                                    self._position = position
+                            
+                            user_images.append(MockUploadedFile(file_path.name, image_bytes))
+                        logger.info(f"사용자 이미지 로드: {file_path.name}")
+                    except Exception as e:
+                        logger.error(f"사용자 이미지 로드 실패 {file_path.name}: {e}")
+        
+        # 후보 이미지들 로드
+        candidate_images = []
+        if candidate_images_dir.exists():
+            for file_path in candidate_images_dir.iterdir():
+                if file_path.suffix.lower() in image_extensions:
+                    try:
+                        with open(file_path, 'rb') as f:
+                            image_bytes = f.read()
+                            candidate_images.append(MockUploadedFile(file_path.name, image_bytes))
+                        logger.info(f"후보 이미지 로드: {file_path.name}")
+                    except Exception as e:
+                        logger.error(f"후보 이미지 로드 실패 {file_path.name}: {e}")
+        
+        logger.info(f"테스트 이미지 로드 완료: 사용자 {len(user_images)}장, 후보 {len(candidate_images)}장")
+        return user_images, candidate_images
+        
+    except Exception as e:
+        logger.error(f"테스트 이미지 로드 중 오류: {e}")
+        return [], []
+
 def map_creator_to_field(user_input: str) -> str:
     for keyword, field in CREATOR_TO_FIELD.items():
         if keyword in user_input:
@@ -138,11 +199,125 @@ def get_next_best_time(audience: str, now: datetime.datetime = None) -> str:
         start_dt = datetime.datetime.combine(post_date.date(), datetime.time.fromisoformat(start))
         if start_dt < now:
             start_dt += datetime.timedelta(days=7)
-        candidates.append((start_dt, f"{day} {start}~{end}"))
+        if start==end:
+            candidates.append((start_dt, f"{day} {start}"))
+        else:
+            candidates.append((start_dt, f"{day} {start}~{end}"))
     if not candidates:
         return "추천 업로드 시간이 없습니다."
     candidates.sort()
     return f"{info}의 가장 가까운 추천 업로드 시간: {candidates[0][1]}"
+
+def load_clip_model():
+    """CLIP 모델 로드"""
+    try:
+        logger.info("CLIP 모델 로딩 중...")
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model, preprocess = clip.load("ViT-B/32", device=device)
+        logger.info(f"CLIP 모델 로딩 완료 (디바이스: {device})")
+        return model, preprocess, device
+    except Exception as e:
+        logger.error(f"CLIP 모델 로딩 실패: {e}")
+        return None, None, None
+
+def calculate_clip_similarity(img1_bytes, img2_bytes, model, preprocess, device):
+    """CLIP 모델을 사용한 이미지 유사도 계산"""
+    try:
+        # 이미지 바이트를 PIL Image로 변환
+        img1 = Image.open(io.BytesIO(img1_bytes)).convert('RGB')
+        img2 = Image.open(io.BytesIO(img2_bytes)).convert('RGB')
+        
+        # 이미지 전처리
+        img1_tensor = preprocess(img1).unsqueeze(0).to(device)
+        img2_tensor = preprocess(img2).unsqueeze(0).to(device)
+        
+        # 이미지 임베딩 추출
+        with torch.no_grad():
+            img1_features = model.encode_image(img1_tensor)
+            img2_features = model.encode_image(img2_tensor)
+            
+            # 정규화
+            img1_features = img1_features / img1_features.norm(dim=-1, keepdim=True)
+            img2_features = img2_features / img2_features.norm(dim=-1, keepdim=True)
+            
+            # 코사인 유사도 계산
+            similarity = (img1_features @ img2_features.T).item()
+        
+        return similarity
+    except Exception as e:
+        logger.error(f"CLIP 유사도 계산 실패: {e}")
+        return 0.0
+
+def calculate_clip_advanced_similarity(img1_bytes, img2_bytes, model, preprocess, device):
+    """CLIP 모델의 텍스트-이미지 이해 능력을 활용한 고급 유사도 계산"""
+    try:
+        # 이미지 바이트를 PIL Image로 변환
+        img1 = Image.open(io.BytesIO(img1_bytes)).convert('RGB')
+        img2 = Image.open(io.BytesIO(img2_bytes)).convert('RGB')
+        
+        # 이미지 전처리
+        img1_tensor = preprocess(img1).unsqueeze(0).to(device)
+        img2_tensor = preprocess(img2).unsqueeze(0).to(device)
+        
+        # 스타일 관련 텍스트 프롬프트들
+        style_prompts = [
+            "a beautiful aesthetic photo",
+            "a stylish fashion photo", 
+            "a professional portrait",
+            "a casual lifestyle photo",
+            "a vibrant colorful image",
+            "a minimalist clean photo",
+            "a warm cozy atmosphere",
+            "a modern trendy style",
+            "a natural outdoor scene",
+            "a artistic creative composition"
+        ]
+        
+        # 텍스트 토크나이징
+        text_tokens = clip.tokenize(style_prompts).to(device)
+        
+        with torch.no_grad():
+            # 이미지 임베딩
+            img1_features = model.encode_image(img1_tensor)
+            img2_features = model.encode_image(img2_tensor)
+            
+            # 텍스트 임베딩
+            text_features = model.encode_text(text_tokens)
+            
+            # 정규화
+            img1_features = img1_features / img1_features.norm(dim=-1, keepdim=True)
+            img2_features = img2_features / img2_features.norm(dim=-1, keepdim=True)
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+            
+            # 이미지-텍스트 유사도 계산
+            img1_text_similarity = (img1_features @ text_features.T).squeeze()
+            img2_text_similarity = (img2_features @ text_features.T).squeeze()
+            
+            # 두 이미지의 스타일 유사도 (텍스트 공간에서)
+            style_similarity = torch.cosine_similarity(img1_text_similarity, img2_text_similarity, dim=0)
+            
+            # 직접 이미지 유사도
+            direct_similarity = (img1_features @ img2_features.T).item()
+            
+            # 종합 유사도 (스타일 + 직접 유사도)
+            combined_similarity = (style_similarity.item() + direct_similarity) / 2
+            
+        return combined_similarity
+    except Exception as e:
+        logger.error(f"CLIP 고급 유사도 계산 실패: {e}")
+        return 0.0
+
+# 전역 변수로 CLIP 모델 저장
+_clip_model = None
+_clip_preprocess = None
+_clip_device = None
+
+def get_clip_model():
+    """CLIP 모델을 싱글톤으로 관리"""
+    global _clip_model, _clip_preprocess, _clip_device
+    if _clip_model is None:
+        _clip_model, _clip_preprocess, _clip_device = load_clip_model()
+    return _clip_model, _clip_preprocess, _clip_device
 
 def calculate_histogram_similarity(img1_bytes, img2_bytes):
     """히스토그램 기반 이미지 유사도 계산"""
@@ -218,6 +393,13 @@ def calculate_image_similarity(img1_bytes, img2_bytes, method="histogram"):
         return calculate_histogram_similarity(img1_bytes, img2_bytes)
     elif method == "orb":
         return calculate_orb_similarity(img1_bytes, img2_bytes)
+    elif method == "clip":
+        model, preprocess, device = get_clip_model()
+        if model is not None:
+            return calculate_clip_advanced_similarity(img1_bytes, img2_bytes, model, preprocess, device)
+        else:
+            logger.warning("CLIP 모델 로딩 실패, 히스토그램 방법으로 대체")
+            return calculate_histogram_similarity(img1_bytes, img2_bytes)
     else:
         logger.warning(f"알 수 없는 방법: {method}, 히스토그램 방법 사용")
         return calculate_histogram_similarity(img1_bytes, img2_bytes)
@@ -282,10 +464,11 @@ def main():
     st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">이미지 유사도 분석 방법</div>', unsafe_allow_html=True)
     analysis_method = st.selectbox(
         "분석 방법을 선택하세요",
-        ["histogram", "orb"],
+        ["histogram", "orb", "clip"],
         format_func=lambda x: {
             "histogram": "히스토그램 비교 (빠름, 색상 기반)",
-            "orb": "ORB 특징점 비교 (정확함, 구조 기반)"
+            "orb": "ORB 특징점 비교 (정확함, 구조 기반)",
+            "clip": "CLIP AI 모델 (최고 정확도, 스타일+의미 기반)"
         }[x]
     )
 
@@ -311,6 +494,65 @@ def main():
                         st.info("잠시 후 다시 시도해주세요.")
         else:
             st.warning("기존 사진과 후보 사진을 모두 업로드 해주세요.")
+
+    # 테스트 버튼 추가
+    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">이미지를 직접 업로드 하지 않고 기능을 테스트하고 싶으신가요?</div>', unsafe_allow_html=True)
+    
+    # 테스트용 분석 방법 선택
+    test_analysis_method = st.selectbox(
+        "테스트용 분석 방법을 선택하세요",
+        ["histogram", "orb", "clip"],
+        format_func=lambda x: {
+            "histogram": "히스토그램 비교 (빠름, 색상 기반)",
+            "orb": "ORB 특징점 비교 (정확함, 구조 기반)",
+            "clip": "CLIP AI 모델 (최고 정확도, 스타일+의미 기반)"
+        }[x],
+        key="test_method"
+    )
+    
+    if st.button("📁 Example로 테스트하기"):
+        user_images, candidate_images = load_test_images()
+        if user_images and candidate_images:
+            st.success(f"테스트 이미지 로드 완료! 사용자 이미지 {len(user_images)}장, 후보 이미지 {len(candidate_images)}장")
+            
+            # 기본 분석 방법으로 테스트 실행
+            with st.spinner(f"테스트 이미지 유사도 분석 중... ({test_analysis_method} 방법 사용)"):
+                try:
+                    logger.info(f"테스트 이미지 유사도 분석 시작 ({test_analysis_method})")
+                    best_idx = find_most_similar_image(user_images, candidate_images, test_analysis_method)
+                    logger.info("테스트 이미지 유사도 분석 완료")
+                    
+                    # 결과 표시
+                    st.markdown("### 🎯 테스트 결과")
+                    st.image(candidate_images[best_idx].read())
+                    
+                    # 사용된 분석 방법 표시
+                    method_display = {
+                        "histogram": "히스토그램 비교",
+                        "orb": "ORB 특징점 비교", 
+                        "clip": "CLIP AI 모델 비교"
+                    }
+                    st.markdown(f"**분석 방법:** {method_display[test_analysis_method]}")
+                    
+                    # 추천 업로드 시간을 예쁘게 표시
+                    best_time = get_next_best_time(CREATOR_TO_FIELD["연예"])
+                    st.markdown("---")
+                    st.markdown("### ⏰ **최적 업로드 시간 추천**")
+                    
+                    # 시간 정보를 강조하여 표시
+                    time_info = best_time.split(": ")[-1] if ": " in best_time else best_time
+                    
+                    st.markdown(f"🕐 **{time_info}**")
+                    st.markdown("*미디어/엔터테인먼트 분야 최적 시간*")
+                        
+                    # 추가 팁 제공
+                    st.info("💡 **팁**: 이 시간대에 업로드하면 팔로워들의 참여도가 높아질 가능성이 있어요!")
+                    
+                except Exception as e:
+                    logger.error(f"테스트 이미지 분석 실패: {e}")
+                    st.error(f"테스트 중 오류가 발생했습니다: {str(e)}")
+        else:
+            st.error("테스트 이미지를 로드할 수 없습니다. data/user_images와 data/candidate_images 디렉토리에 이미지 파일이 있는지 확인해주세요.")
 
 if __name__ == "__main__":
     main()

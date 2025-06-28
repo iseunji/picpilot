@@ -5,8 +5,16 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "clip",
+    "ftfy>=6.3.1",
     "loguru>=0.7.3",
     "opencv-python>=4.11.0.86",
     "pandas>=2.3.0",
+    "regex>=2024.11.6",
     "streamlit>=1.46.0",
+    "torch>=2.7.1",
+    "torchvision>=0.22.1",
 ]
+
+[tool.uv.sources]
+clip = { git = "https://github.com/openai/CLIP.git" }
