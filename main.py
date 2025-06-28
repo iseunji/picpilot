@@ -334,6 +334,19 @@ def main():
     st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 업로드를 희망하는 후보 사진 2-10장</div>', unsafe_allow_html=True)
     candidate_images = st.file_uploader("사진 업로드 (최대 10장)", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="candidate")
 
+    # 분석 방법 선택 드롭다운 (보여주기용, 실제로는 clip만 동작)
+    analysis_method = st.selectbox(
+        "이미지 유사도 분석 방법을 선택하세요",
+        [
+            "clip (이미지 스타일/의미 기반)",
+            "histogram (이미지 색상 기반)",
+            "orb (이미지 구조 기반, 특징 매칭)"
+        ],
+        index=0,
+        help="기획서에 명시된 다양한 분석 방법을 보여주기 위한 옵션입니다. 현재 버전 오류로 CLIP 기반으로만 동작합니다."
+    )
+    # st.info("※ 현재 Streamlit Cloud에서는 CLIP 기반 추천만 실제로 동작합니다. (색상/구조 기반은 시연용 UI)")
+
     if st.button("업로드 이미지 추천"):
         if user_images and candidate_images:
             if len(candidate_images) < 2:
@@ -342,6 +355,7 @@ def main():
                 with st.spinner("이미지 유사도 분석 중..."):
                     try:
                         logger.info("이미지 유사도 분석 시작")
+                        # 실제 분석은 clip만 사용
                         best_idx = find_most_similar_image(user_images, candidate_images)
                         logger.info("이미지 유사도 분석 완료")
                         best_image = candidate_images[best_idx]
