@@ -410,7 +410,7 @@ def main():
     )
 
     st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 본인이 주로 활동하거나, 타겟으로 하는 분야</div>', unsafe_allow_html=True)
-    user_field_input = st.text_input("예시: 뷰티 리뷰, 여행, 투자 콘텐츠 크리에이터 등 / 분야 특정을 원치 않거나 모호한 경우 '없음' 으로 표기 가능합니다.")
+    user_field_input = st.text_input("예시: 뷰티 리뷰, 여행, 투자 콘텐츠 크리에이터 등 / 분야 특정을 원치 않거나 모호한 경우 '없음' 으로 표기 가능")
 
     audience = None
     if user_field_input:
