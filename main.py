@@ -6,8 +6,6 @@ from PIL import Image
 import io
 import torch
 import open_clip
-import os
-from pathlib import Path
 import requests
 
 POST_TIMES = {
@@ -248,7 +246,7 @@ def get_clip_model():
         _clip_model, _clip_preprocess, _clip_device = load_clip_model()
     return _clip_model, _clip_preprocess, _clip_device
 
-def calculate_image_similarity(img1_bytes, img2_bytes, method="clip"):
+def calculate_image_similarity(img1_bytes, img2_bytes):
     model, preprocess, device = get_clip_model()
     if model is not None:
         return calculate_clip_similarity(img1_bytes, img2_bytes, model, preprocess, device)
@@ -256,8 +254,8 @@ def calculate_image_similarity(img1_bytes, img2_bytes, method="clip"):
         logger.warning("open_clip 모델 로딩 실패")
         return 0.0
 
-def find_most_similar_image(user_images, candidate_images, method="clip"):
-    logger.info(f"{method} 방법으로 이미지 유사도 분석 시작")
+def find_most_similar_image(user_images, candidate_images):
+    logger.info("clip 방법으로 이미지 유사도 분석 시작")
     best_idx = 0
     best_similarity = -1
     for i, candidate_img in enumerate(candidate_images):
@@ -267,7 +265,7 @@ def find_most_similar_image(user_images, candidate_images, method="clip"):
         for user_img in user_images:
             user_bytes = user_img.read()
             user_img.seek(0)
-            similarity = calculate_image_similarity(user_bytes, candidate_bytes, method)
+            similarity = calculate_image_similarity(user_bytes, candidate_bytes)
             similarities.append(similarity)
         avg_similarity = np.mean(similarities)
         logger.info(f"후보 이미지 {i+1} 평균 유사도: {avg_similarity:.4f}")
@@ -286,16 +284,19 @@ def generate_caption_with_llm(captions, image_desc="사진"):
         + f"\n\n위 스타일을 참고해서, '{image_desc}'에 어울리는 짧은 코멘트와 해시태그 2개를 추천해줘."
     )
     payload = {"inputs": prompt, "parameters": {"max_new_tokens": 60}}
-    response = requests.post(API_URL, headers=headers, json=payload)
-    result = response.json()
-    if isinstance(result, list) and len(result) > 0 and "generated_text" in result[0]:
-        return result[0]["generated_text"]
-    elif "generated_text" in result:
-        return result["generated_text"]
-    elif "error" in result:
-        return f"LLM 오류: {result['error']}"
-    else:
-        return str(result)
+    try:
+        response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
+        result = response.json()
+        if isinstance(result, list) and len(result) > 0 and "generated_text" in result[0]:
+            return result[0]["generated_text"]
+        elif "generated_text" in result:
+            return result["generated_text"]
+        elif "error" in result:
+            return f"LLM 오류: {result['error']}"
+        else:
+            return str(result)
+    except Exception as e:
+        return f"캡션 생성 중 오류: {e}"
 
 def main():
     st.title("PicPilot Agent")
@@ -333,18 +334,6 @@ def main():
     st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 업로드를 희망하는 후보 사진 2-10장</div>', unsafe_allow_html=True)
     candidate_images = st.file_uploader("사진 업로드 (최대 10장)", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="candidate")
 
-    # 이미지 유사도 분석 방법 선택
-    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 이미지 유사도 분석 방법</div>', unsafe_allow_html=True)
-    analysis_method = st.selectbox(
-        "분석 방법을 선택하세요",
-        ["histogram", "orb", "clip"],
-        format_func=lambda x: {
-            "histogram": "히스토그램 비교 (빠름, 이미지 색상 기반)",
-            "orb": "ORB 특징점 비교 (정확함, 이미지 구조 기반)",
-            "clip": "CLIP AI 모델 (최고 정확도, 이미지 스타일+느낌 기반)"
-        }[x]
-    )
-
     if st.button("업로드 이미지 추천"):
         if user_images and candidate_images:
             if len(candidate_images) < 2:
@@ -353,7 +342,7 @@ def main():
                 with st.spinner("이미지 유사도 분석 중..."):
                     try:
                         logger.info("이미지 유사도 분석 시작")
-                        best_idx = find_most_similar_image(user_images, candidate_images, method="clip")
+                        best_idx = find_most_similar_image(user_images, candidate_images)
                         logger.info("이미지 유사도 분석 완료")
                         best_image = candidate_images[best_idx]
                         st.image(best_image, caption="가장 유사한 스타일의 추천 이미지")
