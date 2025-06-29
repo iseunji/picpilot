@@ -318,12 +318,14 @@ def main():
         '<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 본인이 주로 활동하거나, 타겟으로 하는 분야</div>',
         unsafe_allow_html=True
     )
-    st.text_input(
-        "예시: 뷰티 리뷰, 여행, 투자 콘텐츠 크리에이터 등<br>분야 특정을 원치 않거나 모호한 경우 '없음' 으로 표기 가능",
-        key="user_field_input",
-        help=None,
-        label_visibility="visible"
+    st.markdown(
+        '<div style="color:gray; font-size:0.9em;">'
+        '예시:<br>- 뷰티 리뷰, 여행, 투자 콘텐츠 크리에이터 등<br>'
+        '- 분야 특정을 원치 않거나 모호한 경우 \'없음\' 으로 표기 가능'
+        '</div>',
+        unsafe_allow_html=True
     )
+    user_field_input = st.text_input("", key="user_field_input")
 
     audience = None
     if st.session_state.user_field_input:
@@ -343,10 +345,13 @@ def main():
         '<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 기존에 올렸던 이미지 캡션 + 태그 조합 3개 이상 (개별 구분 필요)</div>',
         unsafe_allow_html=True
     )
-    st.text_area(
-        "예시: - 너무 행복했던 일본 여행!💗 #여행스타그램 #OOTD<br>- 오늘 운동도 완료 #오운완 #운동스타그램",
-        key="captions"
+    st.markdown(
+        '<div style="color:gray; font-size:0.9em;">'
+        '예시:<br>- 너무 행복했던 일본 여행!💗 #여행스타그램 #OOTD<br>- 오늘 운동도 완료 #오운완 #운동스타그램'
+        '</div>',
+        unsafe_allow_html=True
     )
+    captions = st.text_area("", key="captions")
 
     st.markdown(
         '<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 업로드를 희망하는 후보 사진 2-10장</div>',
