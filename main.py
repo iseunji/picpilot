@@ -314,24 +314,44 @@ def main():
         unsafe_allow_html=True
     )
 
-    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 본인이 주로 활동하거나, 타겟으로 하는 분야</div>', unsafe_allow_html=True)
-    user_field_input = st.text_input("예시: 뷰티 리뷰, 여행, 투자 콘텐츠 크리에이터 등 / 분야 특정을 원치 않거나 모호한 경우 '없음' 으로 표기 가능")
+    st.markdown(
+        '<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 본인이 주로 활동하거나, 타겟으로 하는 분야</div>',
+        unsafe_allow_html=True
+    )
+    st.text_input(
+        "예시: 뷰티 리뷰, 여행, 투자 콘텐츠 크리에이터 등<br>분야 특정을 원치 않거나 모호한 경우 '없음' 으로 표기 가능",
+        key="user_field_input",
+        help=None,
+        label_visibility="visible"
+    )
 
     audience = None
-    if user_field_input:
-        audience = map_creator_to_field(user_field_input)
+    if st.session_state.user_field_input:
+        audience = map_creator_to_field(st.session_state.user_field_input)
         if audience:
             st.success(f"입력하신 내용이 '{audience}' 분야로 인식되었습니다.")
         else:
             st.warning("입력하신 내용이 기존 분야 리스트와 매칭되지 않아, 보편적 추천이 적용됩니다.")
 
-    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 본인의 스타일을 보여주거나, 선호하는 사진 5-10장</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 본인의 스타일을 보여주거나, 선호하는 사진 5-10장</div>',
+        unsafe_allow_html=True
+    )
     user_images = st.file_uploader("사진 업로드 (최대 10장)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
-    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 기존에 올렸던 이미지 캡션 + 태그 조합 3개 이상 (개별 구분 필요)</div>', unsafe_allow_html=True)
-    captions = st.text_area("예시: - 너무 행복했던 일본 여행!💗 #여행스타그램 #OOTD<br>    - 오늘 운동도 완료 #오운완 #운동스타그램").splitlines()
+    st.markdown(
+        '<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 기존에 올렸던 이미지 캡션 + 태그 조합 3개 이상 (개별 구분 필요)</div>',
+        unsafe_allow_html=True
+    )
+    st.text_area(
+        "예시: - 너무 행복했던 일본 여행!💗 #여행스타그램 #OOTD<br>- 오늘 운동도 완료 #오운완 #운동스타그램",
+        key="captions"
+    )
 
-    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 업로드를 희망하는 후보 사진 2-10장</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 업로드를 희망하는 후보 사진 2-10장</div>',
+        unsafe_allow_html=True
+    )
     candidate_images = st.file_uploader("사진 업로드 (최대 10장)", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="candidate")
 
     # 분석 방법 선택 드롭다운 (보여주기용, 실제로는 clip만 동작)
@@ -360,9 +380,9 @@ def main():
                         logger.info("이미지 유사도 분석 완료")
                         best_image = candidate_images[best_idx]
                         st.image(best_image, caption="가장 유사한 스타일의 추천 이미지")
-                        if captions:
+                        if st.session_state.captions:
                             with st.spinner("추천 캡션 생성 중..."):
-                                gen_caption = generate_caption_with_llm(captions, image_desc="추천 이미지")
+                                gen_caption = generate_caption_with_llm(st.session_state.captions, image_desc="추천 이미지")
                             st.markdown("**추천 코멘트 및 해시태그:**")
                             st.write(gen_caption)
                         best_time = get_next_best_time(audience)
