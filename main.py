@@ -325,11 +325,11 @@ def main():
         else:
             st.warning("입력하신 내용이 기존 분야 리스트와 매칭되지 않아, 보편적 추천이 적용됩니다.")
 
-    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 본인의 스타일을 보여주거나, 선호하는 인스타그램 사진 5-10장</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 본인의 스타일을 보여주거나, 선호하는 사진 5-10장</div>', unsafe_allow_html=True)
     user_images = st.file_uploader("사진 업로드 (최대 10장)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
-    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 기존에 올렸던 이미지 캡션과 태그 예시 3개 이상 (한 줄에 하나씩)</div>', unsafe_allow_html=True)
-    captions = st.text_area("예시: 너무 행복했던 일본 여행!💗 #여행스타그램 #OOTD 등").splitlines()
+    st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 기존에 올렸던 이미지 캡션 + 태그 조합 3개 이상 (한 줄에 하나씩)</div>', unsafe_allow_html=True)
+    captions = st.text_area("예시: 너무 행복했던 일본 여행!💗 #여행스타그램 #OOTD").splitlines()
 
     st.markdown('<div style="font-size:1.25em; font-weight:600; margin-top:1.5em;">🔹 업로드를 희망하는 후보 사진 2-10장</div>', unsafe_allow_html=True)
     candidate_images = st.file_uploader("사진 업로드 (최대 10장)", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="candidate")
